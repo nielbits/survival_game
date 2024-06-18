@@ -23,6 +23,7 @@ RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
+DARK_GREEN = (0, 100, 0)  # Added dark green color
 
 # Game settings
 PLAYER_RADIUS = 25  # Player is now a ball with radius 25
@@ -37,22 +38,22 @@ WAVE_INTERVAL = 20  # Time in seconds to start a new wave
 
 # GAME SETTINGS
 difficulty_level = 1  # Set difficulty level here
-play_speed_train = 5.0  # Set play speed multiplier for training here
+play_speed_train = 20.0  # Set play speed multiplier for training here
 play_speed_test = 1.0  # Set play speed multiplier for testing here
 play_speed_manual = 1.0  # Set play speed multiplier for manual mode here
-episodes = 10000  # Set number of episodes here
+episodes = 1000  # Set number of episodes here
 model_path = "dqn_model.pth"  # Path to save/load the model
-mode = "manual"  # Set mode: "train", "test", or "manual"
+mode = "train"  # Set mode: "train", "test", or "manual"
 monster_increase_pct = 5  # Percentage increase in monsters per wave
 respawn_reduction_pct = 5  # Percentage reduction in respawn time per wave
-epsilon_start = 1
-epsilon_final = 0.1
-epsilon_decay = 0.9995
+epsilon_start = 0.9
+epsilon_final = 0.15
+epsilon_decay = 0.999
 
 # Reward weights
 penalty_death = -1000
-survival_time_weight = 1.0  # Set weight for survival time here
-monsters_killed_weight = 0.01  # Set weight for monsters killed here
+survival_time_weight = 10.0  # Set weight for survival time here
+monsters_killed_weight = 0.1  # Set weight for monsters killed here
 
 # Define the CNN model using PyTorch
 class DQN(nn.Module):
@@ -113,6 +114,7 @@ class Player:
             self.pos[1] += self.speed
             return 1  # Down
         return -1  # No movement
+
     def draw(self, screen):
         pygame.draw.circle(screen, BLUE, self.pos, PLAYER_RADIUS)
 
@@ -146,6 +148,7 @@ class Player:
 
     def reset_position(self):
         self.pos = self.initial_pos.copy()
+
 class Monster:
     def __init__(self, x_pos, y_pos, monster_type, speed, hp, attack_power, attack_speed):
         self.pos = [x_pos, y_pos]
@@ -281,7 +284,16 @@ class Game:
 
     def draw_projectiles(self):
         for projectile in self.projectiles:
-            pygame.draw.rect(self.screen, RED, (projectile[0], projectile[1], PROJECTILE_SIZE, PROJECTILE_SIZE))
+            if projectile[4] == "player":
+                # Drawing arrow-like projectile for player
+                if projectile[2] == "short_ranged":
+                    pygame.draw.line(self.screen, DARK_GREEN, (projectile[0], projectile[1]), (projectile[0] + 15, projectile[1]), 5)
+                elif projectile[2] == "long_ranged":
+                    pygame.draw.line(self.screen, DARK_GREEN, (projectile[0], projectile[1]), (projectile[0] + 20, projectile[1]), 5)
+                elif projectile[2] == "mid_ranged":
+                    pygame.draw.line(self.screen, DARK_GREEN, (projectile[0], projectile[1]), (projectile[0] + 10, projectile[1]), 5)
+            else:
+                pygame.draw.rect(self.screen, RED, (projectile[0], projectile[1], PROJECTILE_SIZE, PROJECTILE_SIZE))
 
     def update_monster_positions(self):
         new_projectiles = []
@@ -493,7 +505,7 @@ class Game:
         states, actions, rewards, next_states, dones = zip(*mini_batch)
         
         states = torch.FloatTensor(np.array(states)).to(self.device)
-        next_states = torch.FloatFloatTensor(np.array(next_states)).to(self.device)
+        next_states = torch.FloatTensor(np.array(next_states)).to(self.device)
         actions = torch.LongTensor(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
