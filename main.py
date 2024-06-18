@@ -32,7 +32,7 @@ MONSTER_SIZE = 50
 MONSTER_BASE_SPEED = 2  # Reduced by 3 from the original 5
 PROJECTILE_SIZE = 10
 PROJECTILE_SPEED = 10
-INITIAL_MONSTER_RESPAWN_TIME = 2  # Initial time in seconds for monster respawn
+INITIAL_MONSTER_RESPAWN_TIME = 5  # Initial time in seconds for monster respawn
 WAVE_INTERVAL = 20  # Time in seconds to start a new wave
 
 # GAME SETTINGS
@@ -40,24 +40,24 @@ difficulty_level = 1  # Set difficulty level here
 play_speed_train = 100.0  # Set play speed multiplier for training here # max 100 for realistic
 play_speed_test = 1.0  # Set play speed multiplier for testing here
 play_speed_manual = 1.0  # Set play speed multiplier for manual mode here
-episodes = 100000  # Set number of episodes here
+episodes = 10000  # Set number of episodes here
 model_path = "dqn_model.pth"  # Path to save/load the model
 mode = "train"  # Set mode: "train", "test", or "manual"
 monster_increase_pct = 5  # Percentage increase in monsters per wave
 respawn_reduction_pct = 5  # Percentage reduction in respawn time per wave
-epsilon_start = 1
-epsilon_final = 0.15
-epsilon_decay = 0.9999
+epsilon_start = 0.7
+epsilon_final = 0.1
+epsilon_decay = 0.9997
 
 # Reward weights
 penalty_death_monster = -1000
 penalty_death_projectile = -1100
-survival_time_weight = 50.0  # Set weight for survival time here
+survival_time_weight = 100.0  # Set weight for survival time here
 monsters_killed_weight = 0.01  # Set weight for monsters killed here
 
 # Hyperparameters
 learning_rate = 0.001  # Set learning rate here
-batch_size = 128  # Set batch size for mini-batch here
+batch_size = 256  # Set batch size for mini-batch here
 
 # Monster spawn configuration
 monsters_per_respawn = [1, 2, 3]  # List defining types of monsters per spawn
@@ -511,7 +511,7 @@ class Game:
             pygame.display.update()
             self.clock.tick(30 * current_play_speed)
         
-        return state, action, reward, next_state, done, survival_time  # Returning survival time and reward result
+        return state, action, reward, next_state, done, survival_time,monsters_killed  # Returning survival time and reward result
 
     def train_model(self, gamma=0.99):
         if len(self.replay_memory) < self.batch_size:
@@ -546,10 +546,11 @@ class Game:
     def train(self):
         epoch_survival_times = []
         epoch_monsters_killed = []
+        epoch_results = []
 
         try:
             for episode in range(self.episodes):
-                state, action, reward, next_state, done, survival_time,monsters_killed = self.game_loop()
+                state, action, reward, next_state, done, survival_time, monsters_killed = self.game_loop()
                 self.replay_memory.append((state, action, reward, next_state, done))
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
                 self.train_model()
@@ -558,17 +559,23 @@ class Game:
                 epoch_monsters_killed.append(monsters_killed)
 
                 if (episode + 1) % (self.episodes // self.epochs) == 0:
-                    average_survival_time = sum(epoch_survival_times) / len(epoch_survival_times)
-                    average_monsters_killed = sum(epoch_monsters_killed) / len(epoch_monsters_killed)
+                    average_survival_time = sum(epoch_survival_times) / len(epoch_survival_times) if epoch_survival_times else 0
+                    average_monsters_killed = sum(epoch_monsters_killed) / len(epoch_monsters_killed) if epoch_monsters_killed else 0
+                    epoch_results.append({
+                        "epoch": episode // (self.episodes // self.epochs) + 1,
+                        "average_survival_time": average_survival_time,
+                        "average_monsters_killed": average_monsters_killed
+                    })
+                    epoch_survival_times = []  # Reset epoch survival times for the next epoch
+                    epoch_monsters_killed = []  # Reset epoch monsters killed for the next epoch
                     print(f"Epoch {episode // (self.episodes // self.epochs) + 1}/{self.epochs}, Average Survival Time: {average_survival_time:.2f} seconds, Average Monsters Killed: {average_monsters_killed:.4f}")
+
                 print(f"Episode {episode + 1}/{self.episodes}, Epsilon: {self.epsilon:.2f}, Survival Time: {survival_time:.2f} seconds, Reward: {reward:.2f}")
 
             print("Training finished. Here are the epoch results:")
-            for epoch in range(1, self.epochs + 1):
-                average_survival_time = (epoch_survival_times) / len(epoch_survival_times)
-                average_monsters_killed = sum(epoch_monsters_killed) / len(epoch_monsters_killed)
-                print(f"Epoch {epoch}/{self.epochs}, Average Survival Time: {average_survival_time:.2f} seconds, Average Monsters Killed: {average_monsters_killed:.2f}")
-                
+            for result in epoch_results:
+                print(f"Epoch {result['epoch']}/{self.epochs}, Average Survival Time: {result['average_survival_time']:.2f} seconds, Average Monsters Killed: {result['average_monsters_killed']:.2f}")
+
         except KeyboardInterrupt:
             print("Training interrupted. Saving model...")
             if self.model_path:
