@@ -32,15 +32,15 @@ MONSTER_SIZE = 50
 MONSTER_BASE_SPEED = 2  # Reduced by 3 from the original 5
 PROJECTILE_SIZE = 10
 PROJECTILE_SPEED = 10
-INITIAL_MONSTER_RESPAWN_TIME = 5  # Initial time in seconds for monster respawn
+INITIAL_MONSTER_RESPAWN_TIME = 2  # Initial time in seconds for monster respawn
 WAVE_INTERVAL = 20  # Time in seconds to start a new wave
 
 # GAME SETTINGS
 difficulty_level = 1  # Set difficulty level here
-play_speed_train = 10.0  # Set play speed multiplier for training here
+play_speed_train = 30.0  # Set play speed multiplier for training here
 play_speed_test = 1.0  # Set play speed multiplier for testing here
 play_speed_manual = 1.0  # Set play speed multiplier for manual mode here
-episodes = 500  # Set number of episodes here
+episodes = 1000  # Set number of episodes here
 model_path = "dqn_model.pth"  # Path to save/load the model
 mode = "train"  # Set mode: "train", "test", or "manual"
 monster_increase_pct = 5  # Percentage increase in monsters per wave
@@ -51,16 +51,16 @@ epsilon_decay = 0.997
 
 # Reward weights
 penalty_death_monster = -1000
-penalty_death_projectile = -500
+penalty_death_projectile = -1500
 survival_time_weight = 20.0  # Set weight for survival time here
 monsters_killed_weight = 0.01  # Set weight for monsters killed here
 
 # Hyperparameters
 learning_rate = 0.001  # Set learning rate here
-batch_size = 512  # Set batch size for mini-batch here
+batch_size = 128  # Set batch size for mini-batch here
 
-# Define monsters per spawn list
-monsters_per_respawn = [1, 2, 3]  # Each spawn will have one monster type 1, one monster type 2, and one monster type 3
+# Monster spawn configuration
+monsters_per_respawn = [1, 2, 2]  # List defining types of monsters per spawn
 
 # Define the CNN model using PyTorch
 class DQN(nn.Module):
@@ -177,7 +177,7 @@ class Monster:
         pygame.draw.rect(screen, RED, (self.pos[0], self.pos[1], MONSTER_SIZE, MONSTER_SIZE))
 
     def attack(self, projectiles, player_pos, play_speed):
-        pass  # Base monster does not attack
+        pass
 
 class Type1Monster(Monster):
     def __init__(self, x_pos, y_pos, difficulty):
@@ -216,22 +216,14 @@ class Type3Monster(Monster):
 
     def attack(self, projectiles, player_pos, play_speed):
         if self.cooldown <= 0:
-            directions = [
-                np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE]),
-                np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE]),
-                np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE])
-            ]
-            angles = [0, 45, -45]
-            for i in range(3):
-                direction = directions[i]
-                angle = np.deg2rad(angles[i])
-                norm = np.linalg.norm(direction)
-                if norm != 0:
-                    direction = direction / norm
-                rotated_direction = np.array([
-                    direction[0] * np.cos(angle) - direction[1] * np.sin(angle),
-                    direction[0] * np.sin(angle) + direction[1] * np.cos(angle)
-                ])
+            direction = np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE])
+            norm = np.linalg.norm(direction)
+            if norm != 0:
+                direction = direction / norm
+            angle_offsets = [0, np.pi / 6, -np.pi / 6]  # Main direction, 30 degrees to the right, 30 degrees to the left
+            for angle in angle_offsets:
+                rotated_direction = np.array([np.cos(angle) * direction[0] - np.sin(angle) * direction[1],
+                                              np.sin(angle) * direction[0] + np.cos(angle) * direction[1]])
                 projectiles.append([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE, "attack_projectile", rotated_direction, "monster", play_speed])
             self.cooldown = 30
         else:
@@ -264,10 +256,11 @@ class Game:
         self.epsilon_min = epsilon_final
         self.epsilon_decay = epsilon_decay
         self.episodes = episodes
-        self.epochs = episodes // 10
+        self.epochs = episodes // 10  # Number of epochs
         self.difficulty = difficulty
         self.monster_increase_pct = monster_increase_pct / 100
         self.respawn_reduction_pct = respawn_reduction_pct / 100
+        self.monsters_per_respawn = monsters_per_respawn
         self.arrows = ["up", "down", "left", "right"]
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
@@ -277,7 +270,6 @@ class Game:
         ])
         self.last_monster_spawn_time = time.time()
         self.monster_respawn_time = INITIAL_MONSTER_RESPAWN_TIME
-        self.monsters_per_respawn = monsters_per_respawn
         self.wave_start_time = time.time()
         self.initial_wave_time = time.time()
         self.model_path = model_path
@@ -294,14 +286,17 @@ class Game:
         self.batch_size = batch_size
 
     def create_monster(self, monster_type):
-        monster_classes = {1: Type1Monster, 2: Type2Monster, 3: Type3Monster}
-        monster_class = monster_classes[monster_type]
         while True:
             x_pos = random.randint(0, SCREEN_WIDTH - MONSTER_SIZE)
             y_pos = random.randint(0, SCREEN_HEIGHT - MONSTER_SIZE)
             if (x_pos - self.player.pos[0]) ** 2 + (y_pos - self.player.pos[1]) ** 2 > (2 * MONSTER_SIZE) ** 2:
                 break
-        return monster_class(x_pos, y_pos, self.difficulty)
+        if monster_type == 1:
+            return Type1Monster(x_pos, y_pos, self.difficulty)
+        elif monster_type == 2:
+            return Type2Monster(x_pos, y_pos, self.difficulty)
+        elif monster_type == 3:
+            return Type3Monster(x_pos, y_pos, self.difficulty)
 
     def draw_projectiles(self):
         for projectile in self.projectiles:
@@ -315,8 +310,7 @@ class Game:
         new_projectiles = []
         for monster in self.monsters:
             monster.move(self.player.pos, self.play_speed)
-            if isinstance(monster, (Type2Monster, Type3Monster)):
-                monster.attack(new_projectiles, self.player.pos, self.play_speed)
+            monster.attack(new_projectiles, self.player.pos, self.play_speed)
         self.monsters = [monster for monster in self.monsters if monster.pos[1] < SCREEN_HEIGHT and monster.hp > 0]
         self.projectiles += new_projectiles
 
@@ -355,10 +349,10 @@ class Game:
     def collision_check(self):
         for monster in self.monsters:
             if self.detect_collision(self.player.pos, monster.pos, MONSTER_SIZE):
-                return True, "monster"
+                return True, "collided with a monster"
         for projectile in self.projectiles:
             if projectile[4] == "monster" and self.detect_collision(self.player.pos, projectile[:2], PROJECTILE_SIZE):
-                return True, "projectile"
+                return True, "hit by a projectile"
         return False, ""
 
     def detect_collision(self, player_pos, obj_pos, obj_size):
@@ -477,10 +471,9 @@ class Game:
             if collision:
                 survival_time = (time.time() - start_time) * current_play_speed
                 self.total_survival_time += survival_time
-                print(f"Player survived {survival_time:.2f} seconds, restarting game due to {reason}")
-                if reason == "monster":
+                if reason == "collided with a monster":
                     reward = self.penalty_death_monster + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
-                elif reason == "projectile":
+                elif reason == "hit by a projectile":
                     reward = self.penalty_death_projectile + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
                 if self.mode == "manual":
                     self.replay_memory.append((state, action, reward, state, done))
@@ -502,10 +495,7 @@ class Game:
             next_state = np.concatenate((state[1:], np.expand_dims(next_frame, axis=0)), axis=0)  # Shape [4, 84, 84]
             
             survival_time = (time.time() - start_time) * current_play_speed
-            if self.mode == "manual":
-                reward = 0  # No reward calculation in manual mode
-            else:
-                reward = self.penalty_death_monster + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
+            reward = (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
             
             if self.mode in ['train', 'test', 'manual']:
                 self.replay_memory.append((state, action, reward, next_state, done))
@@ -553,23 +543,43 @@ class Game:
     def train(self):
         epoch_survival_times = []
         epoch_monsters_killed = []
-        for epoch in range(self.epochs):
-            epoch_survival_time = 0
-            epoch_monsters_killed = 0
-            for episode in range(self.episodes // self.epochs):
+        epoch_data = []
+
+        try:
+            for episode in range(self.episodes):
+                self.total_monsters_killed = 0  # Reset monsters killed at the start of each episode
                 state, action, reward, next_state, done, survival_time = self.game_loop()
                 self.replay_memory.append((state, action, reward, next_state, done))
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
                 self.train_model()
-                epoch_survival_time += survival_time
-                epoch_monsters_killed += self.total_monsters_killed
-                print(f"Episode {episode + 1}/{self.episodes}, Epsilon: {self.epsilon:.2f}, Survival Time: {survival_time:.2f} seconds, Reward: {reward:.2f}")
-            average_survival_time = epoch_survival_time / (self.episodes // self.epochs)
-            average_monsters_killed = epoch_monsters_killed / (self.episodes // self.epochs)
-            print(f"Epoch {epoch + 1}/{self.epochs}, Average Survival Time: {average_survival_time:.2f} seconds, Average Monsters Killed: {average_monsters_killed:.2f}")
-            epoch_survival_times.append(average_survival_time)
-            epoch_monsters_killed.append(average_monsters_killed)
-        self.save_model(self.model_path)
+
+                epoch_survival_times.append(survival_time)
+                epoch_monsters_killed.append(self.total_monsters_killed)
+
+                print(f"Episode {episode + 1}/{self.episodes}, Epsilon: {self.epsilon:.2f}, Survival Time: {survival_time:.2f} seconds, Monsters Killed: {self.total_monsters_killed}, Reward: {reward:.2f}")
+
+                if (episode + 1) % (self.episodes // self.epochs) == 0:
+                    average_survival_time = sum(epoch_survival_times) / len(epoch_survival_times)
+                    average_monsters_killed = sum(epoch_monsters_killed) / len(epoch_monsters_killed)
+                    epoch_data.append((average_survival_time, average_monsters_killed))
+                    print(f"Epoch {episode // (self.episodes // self.epochs) + 1}/{self.epochs}, Average Survival Time: {average_survival_time:.2f} seconds, Average Monsters Killed: {average_monsters_killed:.2f}")
+                    epoch_survival_times = []
+                    epoch_monsters_killed = []
+
+        except KeyboardInterrupt:
+            print("Training interrupted. Saving model...")
+            if self.model_path:
+                self.save_model(self.model_path)
+            sys.exit()
+
+        if self.model_path:
+            self.save_model(self.model_path)
+
+        # Print epoch data after training
+        print("Epoch Data (Average Survival Time, Average Monsters Killed):")
+        for i, (avg_survival_time, avg_monsters_killed) in enumerate(epoch_data):
+            print(f"Epoch {i + 1}: {avg_survival_time:.2f} seconds, {avg_monsters_killed:.2f} monsters killed")
+
         pygame.quit()
 
     def test(self):
