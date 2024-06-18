@@ -29,15 +29,15 @@ DARK_GREEN = (0, 100, 0)
 PLAYER_RADIUS = 25  # Player is now a ball with radius 25
 PLAYER_SPEED = 10
 MONSTER_SIZE = 50
-MONSTER_BASE_SPEED = 2  # Reduced by 3 from the original 5
-PROJECTILE_SIZE = 10
-PROJECTILE_SPEED = 10
+MONSTER_BASE_SPEED = 1  # Reduced by 3 from the original 5
+PROJECTILE_SIZE = 20
+PROJECTILE_SPEED = 5
 INITIAL_MONSTER_RESPAWN_TIME = 3  # Initial time in seconds for monster respawn
 WAVE_INTERVAL = 20  # Time in seconds to start a new wave
 
 # GAME SETTINGS
 difficulty_level = 1  # Set difficulty level here
-play_speed_train = 20.0  # Set play speed multiplier for training here # max 100 for realistic
+play_speed_train = 5.0  # Set play speed multiplier for training here # max 100 for realistic
 play_speed_test = 1.0  # Set play speed multiplier for testing here
 play_speed_manual = 1.0  # Set play speed multiplier for manual mode here
 num_epochs = 10  # Set number of epochs here
@@ -52,13 +52,13 @@ epsilon_decay = 0.999
 
 # Reward weights
 penalty_death_monster = -1000
-penalty_death_projectile = -1500
+penalty_death_projectile = -1000
 survival_time_weight = 50.0  # Set weight for survival time here
 monsters_killed_weight = 0.01  # Set weight for monsters killed here
 
 # Hyperparameters
-learning_rate = 0.001  # Set learning rate here
-batch_size = 128  # Set batch size for mini-batch here
+learning_rate = 0.003  # Set learning rate here
+batch_size = 256  # Set batch size for mini-batch here
 
 # Monster spawn configuration
 monsters_per_respawn = [1, 2, 3]  # List defining types of monsters per spawn
@@ -486,6 +486,7 @@ class Game:
             if collision:
                 survival_time = (time.time() - start_time) * current_play_speed
                 self.total_survival_time += survival_time
+
                 death_reason = reason
                 if reason == "collided with a monster":
                     reward = self.penalty_death_monster + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
@@ -494,9 +495,10 @@ class Game:
                 if self.mode == "manual":
                     self.replay_memory.append((state, action, reward, state, done))
                     self.save_model(self.model_path)  # Save the model only once per round
+                monsters_killed=self.total_monsters_killed
                 self.reset_game()
                 done = True
-                return state, action, reward, state, done, survival_time, death_reason  # Returning survival time and death reason
+                return state, action, reward, state, done, survival_time, death_reason,monsters_killed  # Returning survival time and death reason
 
             # Draw player, monsters, projectiles, and arrows
             self.player.draw(self.screen)
@@ -571,13 +573,13 @@ class Game:
                 # Wrap the episode loop with tqdm for progress bar
                 for episode in tqdm(range(self.episodes_per_epoch), desc=f"Epoch {epoch + 1}/{self.num_epochs}"):
                     result = self.game_loop()
-                    state, action, reward, next_state, done, survival_time, death_reason = result
+                    state, action, reward, next_state, done, survival_time, death_reason,monsters_killed = result
                     self.replay_memory.append((state, action, reward, next_state, done))
                     self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
                     self.train_model()
 
                     epoch_survival_times.append(survival_time)
-                    epoch_monsters_killed.append(self.total_monsters_killed)
+                    epoch_monsters_killed.append(monsters_killed)
 
                     if death_reason == "hit by a projectile":
                         deaths_by_projectile += 1
