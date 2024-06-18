@@ -31,23 +31,23 @@ MONSTER_SIZE = 50
 MONSTER_BASE_SPEED = 2  # Reduced by 3 from the original 5
 PROJECTILE_SIZE = 10
 PROJECTILE_SPEED = 10
-INITIAL_MONSTER_RESPAWN_TIME = 3  # Initial time in seconds for monster respawn
-INITIAL_MONSTERS_PER_RESPAWN = 3  # Initial number of monsters per respawn
+INITIAL_MONSTER_RESPAWN_TIME = 2  # Initial time in seconds for monster respawn
+INITIAL_MONSTERS_PER_RESPAWN = 2  # Initial number of monsters per respawn
 WAVE_INTERVAL = 20  # Time in seconds to start a new wave
 
 # GAME SETTINGS
 difficulty_level = 1  # Set difficulty level here
-play_speed_train = 20.0  # Set play speed multiplier for training here
+play_speed_train = 5.0  # Set play speed multiplier for training here
 play_speed_test = 1.0  # Set play speed multiplier for testing here
 play_speed_manual = 1.0  # Set play speed multiplier for manual mode here
 episodes = 10000  # Set number of episodes here
 model_path = "dqn_model.pth"  # Path to save/load the model
-mode = "train"  # Set mode: "train", "test", or "manual"
+mode = "manual"  # Set mode: "train", "test", or "manual"
 monster_increase_pct = 5  # Percentage increase in monsters per wave
 respawn_reduction_pct = 5  # Percentage reduction in respawn time per wave
-epsilon_start = 0.5
-epsilon_final = 0.2
-epsilon_decay = 0.995
+epsilon_start = 1
+epsilon_final = 0.1
+epsilon_decay = 0.9995
 
 # Reward weights
 penalty_death = -1000
@@ -62,7 +62,8 @@ class DQN(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         self.fc1 = nn.Linear(7 * 7 * 64, 512)
-        self.fc2 = nn.Linear(512, num_actions)
+        self.fc2 = nn.Linear(512, 128)
+        self.fc3 = nn.Linear(128, num_actions)
 
     def forward(self, x):
         x = torch.relu(self.conv1(x))
@@ -70,7 +71,9 @@ class DQN(nn.Module):
         x = torch.relu(self.conv3(x))
         x = x.view(x.size(0), -1)
         x = torch.relu(self.fc1(x))
-        return self.fc2(x)
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x)
+
         
 class Player:
     def __init__(self, play_speed):
@@ -99,16 +102,17 @@ class Player:
     def move_manual(self, keys):
         if keys[pygame.K_LEFT]:
             self.pos[0] -= self.speed
+            return 2  # Left
         if keys[pygame.K_RIGHT]:
             self.pos[0] += self.speed
+            return 3  # Right
         if keys[pygame.K_UP]:
             self.pos[1] -= self.speed
+            return 0  # Up
         if keys[pygame.K_DOWN]:
             self.pos[1] += self.speed
-
-        self.pos[0] = max(PLAYER_RADIUS, min(SCREEN_WIDTH - PLAYER_RADIUS, self.pos[0]))
-        self.pos[1] = max(PLAYER_RADIUS, min(SCREEN_HEIGHT - PLAYER_RADIUS, self.pos[1]))
-
+            return 1  # Down
+        return -1  # No movement
     def draw(self, screen):
         pygame.draw.circle(screen, BLUE, self.pos, PLAYER_RADIUS)
 
@@ -142,7 +146,6 @@ class Player:
 
     def reset_position(self):
         self.pos = self.initial_pos.copy()
-
 class Monster:
     def __init__(self, x_pos, y_pos, monster_type, speed, hp, attack_power, attack_speed):
         self.pos = [x_pos, y_pos]
@@ -418,7 +421,9 @@ class Game:
                 current_play_speed = 1.0
             
             if self.mode == "manual":
-                self.player.move_manual(keys)
+                action = self.player.move_manual(keys)
+                if action == -1:
+                    continue  # Skip this frame if no movement
             else:
                 action = self.choose_action(state)
                 self.player.move(action)
@@ -444,11 +449,14 @@ class Game:
                 survival_time = (time.time() - start_time) * current_play_speed
                 self.total_survival_time += survival_time
                 print(f"Player survived {survival_time:.2f} seconds, restarting game due to {reason}")
+                reward = self.penalty_death + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
+                if self.mode == "manual":
+                    self.replay_memory.append((state, action, reward, state, done))
+                    self.save_model(self.model_path)  # Save the model only once per round
                 self.reset_game()
                 done = True
-                reward = self.penalty_death + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
                 return state, action, reward, state, done, survival_time  # Returning survival time and reward result
-            
+
             # Draw player, monsters, projectiles, and arrows
             self.player.draw(self.screen)
             for monster in self.monsters:
@@ -464,7 +472,8 @@ class Game:
             survival_time = (time.time() - start_time) * current_play_speed
             reward = self.penalty_death + (survival_time * self.survival_time_weight) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
             
-            self.replay_memory.append((state, action, reward, next_state, done))
+            if self.mode in ['train', 'test', 'manual']:
+                self.replay_memory.append((state, action, reward, next_state, done))
             
             state = next_state
             
@@ -475,15 +484,16 @@ class Game:
             self.clock.tick(30 * current_play_speed)
         
         return state, action, reward, next_state, done, survival_time  # Returning survival time and reward result
-    
+
     def train_model(self, gamma=0.99, batch_size=256):
         if len(self.replay_memory) < batch_size:
+            print('Insufficient actions for batch')
             return
         mini_batch = random.sample(self.replay_memory, batch_size)
         states, actions, rewards, next_states, dones = zip(*mini_batch)
         
         states = torch.FloatTensor(np.array(states)).to(self.device)
-        next_states = torch.FloatTensor(np.array(next_states)).to(self.device)
+        next_states = torch.FloatFloatTensor(np.array(next_states)).to(self.device)
         actions = torch.LongTensor(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
@@ -528,19 +538,22 @@ class Game:
         total_survival_time = 0
         total_reward = 0
         try:
-            state, action, reward, next_state, done, survival_time = self.game_loop()
-            total_survival_time += survival_time
-            total_reward += reward
-            while not done:
-                state, action, reward, next_state, done, survival_time = self.game_loop()
+            while True:
+                result = self.game_loop()
+                if result is None:
+                    break
+                state, action, reward, next_state, done, survival_time = result
                 total_survival_time += survival_time
                 total_reward += reward
+                if done:
+                    break
             print(f"Total survival time in testing mode: {total_survival_time:.2f} seconds, Total Reward: {total_reward:.2f}")
         except KeyboardInterrupt:
             print(f"Testing interrupted. Total survival time: {total_survival_time:.2f} seconds, Total Reward: {total_reward:.2f}")
             sys.exit()
 
         pygame.quit()
+
 
 if __name__ == "__main__":
     game = Game(difficulty=difficulty_level, play_speed_train=play_speed_train, play_speed_test=play_speed_test, play_speed_manual=play_speed_manual, episodes=episodes, model_path=model_path, mode=mode, monster_increase_pct=monster_increase_pct, respawn_reduction_pct=respawn_reduction_pct, epsilon_start=epsilon_start, epsilon_final=epsilon_final, epsilon_decay=epsilon_decay, penalty_death=penalty_death, survival_time_weight=survival_time_weight, monsters_killed_weight=monsters_killed_weight)
