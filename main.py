@@ -66,16 +66,17 @@ learning_rate = 0.001  # Set learning rate here
 batch_size = 64  # Set batch size for mini-batch here
 
 # Monster spawn configuration
-monsters_per_respawn = [1, 2, 3,1,2]  # List defining types of monsters per spawn
+monsters_per_respawn = [1, 2, 3, 1, 2]  # List defining types of monsters per spawn
 
 # FPS Settings
 fps = 60  # Set the FPS here
 
 # New parameters
-player_attack_speed = 1.0/50  # Set player attack speed here
+player_attack_speed = 1.0 / 50  # Set player attack speed here
 player_cooldown = {"short_ranged": 1 * fps, "mid_ranged": 1 * fps, "long_ranged": 1 * fps}  # Cooldown time for player attacks
 monster_attack_speed = {"type1": 0.3, "type2": 0.8, "type3": 0.5}  # Set attack speed for monsters
 monster_cooldown = {"type1": 2 * fps, "type2": 2 * fps, "type3": 2 * fps}  # Cooldown time for monster attacks
+
 
 # Define the CNN model using PyTorch
 class DQN(nn.Module):
@@ -108,9 +109,10 @@ class DQN(nn.Module):
         x = torch.nn.functional.leaky_relu(self.fc2(x))
         return self.fc3(x)
 
+
 class Player:
     def __init__(self, play_speed):
-        self.initial_pos = [SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 2 * PLAYER_RADIUS]  # Changed for player to start in the middle, not cornered
+        self.initial_pos = [SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 2 * PLAYER_RADIUS]  # Changed for player to start in the middle, not cornered
         self.pos = self.initial_pos.copy()
         self.speed = PLAYER_SPEED * play_speed
         self.hp = 100
@@ -148,7 +150,7 @@ class Player:
         return -1  # No movement
 
     def draw(self, screen):
-        pygame.draw.circle(screen, BLUE, self.pos, PLAYER_RADIUS)
+        pygame.draw.circle(screen, BLUE, (int(self.pos[0]), int(self.pos[1])), PLAYER_RADIUS)
 
     def shoot(self, projectiles, monsters):
         for weapon in self.weapon_cooldowns:
@@ -175,6 +177,7 @@ class Player:
     def reset_position(self):
         self.pos = self.initial_pos.copy()
 
+
 class Monster:
     def __init__(self, x_pos, y_pos, monster_type, speed, hp, attack_power, attack_speed, cooldown):
         self.pos = [x_pos, y_pos]
@@ -194,10 +197,11 @@ class Monster:
         self.pos[1] += self.speed * play_speed * direction[1]
 
     def draw(self, screen):
-        pygame.draw.rect(screen, RED, (self.pos[0], self.pos[1], MONSTER_SIZE, MONSTER_SIZE))
+        pygame.draw.rect(screen, RED, (int(self.pos[0]), int(self.pos[1]), MONSTER_SIZE, MONSTER_SIZE))
 
     def attack(self, projectiles, player_pos, play_speed):
         pass
+
 
 class Type1Monster(Monster):
     def __init__(self, x_pos, y_pos, difficulty):
@@ -207,6 +211,7 @@ class Type1Monster(Monster):
         attack_speed = monster_attack_speed["type1"]
         cooldown = monster_cooldown["type1"]
         super().__init__(x_pos, y_pos, "type1", speed, hp, attack_power, attack_speed, cooldown)
+
 
 class Type2Monster(Monster):
     def __init__(self, x_pos, y_pos, difficulty):
@@ -227,6 +232,7 @@ class Type2Monster(Monster):
             self.cooldown = 30 / self.attack_speed  # Reset cooldown based on attack speed
         else:
             self.cooldown -= 1 * play_speed
+
 
 class Type3Monster(Monster):
     def __init__(self, x_pos, y_pos, difficulty):
@@ -251,6 +257,7 @@ class Type3Monster(Monster):
             self.cooldown = 30 / self.attack_speed  # Reset cooldown based on attack speed
         else:
             self.cooldown -= 1 * play_speed
+
 
 class Game:
     def __init__(self, difficulty=difficulty_level, play_speed_train=play_speed_train, play_speed_test=play_speed_test, play_speed_manual=play_speed_manual, num_epochs=num_epochs, episodes_per_epoch=episodes_per_epoch, model_path=model_path, mode=mode, monster_increase_pct=monster_increase_pct, respawn_reduction_pct=respawn_reduction_pct, epsilon_start=epsilon_start, epsilon_final=epsilon_final, epsilon_decay=epsilon_decay, penalty_hp_loss_monster=penalty_hp_loss_monster, penalty_hp_loss_projectile=penalty_hp_loss_projectile, survival_time_weight=survival_time_weight, monsters_killed_weight=monsters_killed_weight, learning_rate=learning_rate, batch_size=batch_size):
@@ -327,9 +334,9 @@ class Game:
         for projectile in self.projectiles:
             if projectile[4] == "player":
                 end_pos = (projectile[0] + 15 * projectile[3][0], projectile[1] + 15 * projectile[3][1])
-                pygame.draw.line(self.screen, DARK_GREEN, (projectile[0], projectile[1]), end_pos, 5)
+                pygame.draw.line(self.screen, DARK_GREEN, (int(projectile[0]), int(projectile[1])), (int(end_pos[0]), int(end_pos[1])), 5)
             else:
-                pygame.draw.rect(self.screen, BLACK, (projectile[0], projectile[1], PROJECTILE_SIZE, PROJECTILE_SIZE))
+                pygame.draw.rect(self.screen, BLACK, (int(projectile[0]), int(projectile[1]), PROJECTILE_SIZE, PROJECTILE_SIZE))
 
     def update_monster_positions(self):
         new_projectiles = []
@@ -683,6 +690,7 @@ class Game:
             sys.exit()
 
         pygame.quit()
+
 
 if __name__ == "__main__":
     game = Game(difficulty=difficulty_level, play_speed_train=play_speed_train, play_speed_test=play_speed_test, play_speed_manual=play_speed_manual, num_epochs=num_epochs, episodes_per_epoch=episodes_per_epoch, model_path=model_path, mode=mode, monster_increase_pct=monster_increase_pct, respawn_reduction_pct=respawn_reduction_pct, epsilon_start=epsilon_start, epsilon_final=epsilon_final, epsilon_decay=epsilon_decay, penalty_hp_loss_monster=penalty_hp_loss_monster, penalty_hp_loss_projectile=penalty_hp_loss_projectile, survival_time_weight=survival_time_weight, monsters_killed_weight=monsters_killed_weight, learning_rate=learning_rate, batch_size=batch_size)
