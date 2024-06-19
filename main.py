@@ -14,6 +14,9 @@ from tqdm import tqdm
 # Initialize Pygame
 pygame.init()
 
+
+
+
 # Screen dimensions
 SCREEN_WIDTH, SCREEN_HEIGHT = 800 * 1.5, 600 * 1.5
 
@@ -26,6 +29,14 @@ GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 DARK_GREEN = (0, 100, 0)
 
+# Game settings
+SPEED_MULTIPLIER = 2
+DIFFICULTY_LEVEL = 1
+MODEL_PATH = "dqn_model.pth"
+MODE = "train"
+EPOCH_IN_REAL_TIME = False
+
+
 # Final dimensions for state representation
 FINAL_WIDTH, FINAL_HEIGHT = 84, 84
 
@@ -33,11 +44,11 @@ FINAL_WIDTH, FINAL_HEIGHT = 84, 84
 PLAYER_RADIUS = 25
 PLAYER_SPEED = 10
 PLAYER_ATTACK_POWER = 8
-PLAYER_ATTACK_COOLDOWN = 1.0
+PLAYER_ATTACK_COOLDOWN = 0.3
 
 MONSTER_SIZE = 50
 MONSTER_BASE_SPEED = 1.1
-MONSTER_ATTACK_COOLDOWN = {"type1": 1, "type2": 2.5, "type3": 3}
+MONSTER_ATTACK_COOLDOWN = {"type1": 1, "type2": 3, "type3": 5}
 MONSTER_PROJECTILE_SPEED = 1
 
 MONSTER_INCREASE_PCT = 5
@@ -47,15 +58,11 @@ PROJECTILE_SIZE = 15
 PROJECTILE_SPEED = 1
 
 # respawn data
-MONSTER_RESPAWN_TIME = 10
+MONSTER_RESPAWN_TIME = 8
 MONSTERS_PER_RESPAWN = [1,2,3]
-WAVE_INTERVAL = MONSTER_RESPAWN_TIME * 10
+WAVE_INTERVAL = MONSTER_RESPAWN_TIME * 5
 
-# Game settings
-DIFFICULTY_LEVEL = 1
-MODEL_PATH = "dqn_model.pth"
-MODE = "train"
-EPOCH_IN_REAL_TIME = True
+
 
 # Reward weights
 PENALTY_HP_LOSS = -1000
@@ -65,9 +72,9 @@ MONSTERS_KILLED_WEIGHT = 1
 # Hyperparameters
 LEARNING_RATE = 0.003
 BATCH_SIZE = 64
-NUM_EPOCHS = 5
-EPISODES_PER_EPOCH = 100000
-SPEED_MULTIPLIER = 10
+NUM_EPOCHS = 100
+EPISODES_PER_EPOCH = 1000
+
 
 # Exploration parameters
 EPSILON_START = 1
@@ -75,7 +82,7 @@ EPSILON_FINAL = 0.1
 EPSILON_DECAY = 0.9999
 
 # FPS Settings
-FPS = 240
+FPS = 120
 
 # Define the CNN model using PyTorch
 class DQN(nn.Module):
@@ -113,10 +120,10 @@ class Player:
         self.initial_pos = [SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 2 * PLAYER_RADIUS]
         self.pos = self.initial_pos.copy()
         self.speed_multiplier = speed_multiplier
-        self.hp = 100
+        self.hp = 10000
         self.attack_power = PLAYER_ATTACK_POWER
         self.attack_cooldown = PLAYER_ATTACK_COOLDOWN
-        self.last_attack_time=time.time()
+        self.last_attack_time=0
 
     def move(self, direction):
         if direction == 0:
@@ -149,8 +156,7 @@ class Player:
     def draw(self, screen):
         pygame.draw.circle(screen, BLUE, (int(self.pos[0]), int(self.pos[1])), PLAYER_RADIUS)
 
-    def shoot(self, projectiles, monsters):
-         current_time = time.time()
+    def shoot(self, projectiles, monsters,current_time):
          if current_time - self.last_attack_time >= self.attack_cooldown:
             target_monster = self.get_closest_monster(monsters)
             if target_monster:
@@ -180,7 +186,7 @@ class Monster:
         self.hp = hp
         self.attack_power = attack_power
         self.cooldown = cooldown
-        self.last_attack_time = time.time()  # Track the last attack time
+        self.last_attack_time = 0  # Track the last attack time
 
     def move(self, player_pos):
         direction = np.array(player_pos) - np.array(self.pos)
@@ -193,7 +199,7 @@ class Monster:
     def draw(self, screen):
         pygame.draw.rect(screen, RED, (int(self.pos[0]), int(self.pos[1]), MONSTER_SIZE, MONSTER_SIZE))
 
-    def attack(self, projectiles, player_pos):
+    def attack(self, projectiles, player_pos,current_time):
         pass
 
 class Type1Monster(Monster):
@@ -212,8 +218,7 @@ class Type2Monster(Monster):
         cooldown = MONSTER_ATTACK_COOLDOWN["type2"]
         super().__init__(x_pos, y_pos, "type2", speed, hp, attack_power, cooldown)
 
-    def attack(self, projectiles, player_pos):
-        current_time = time.time()
+    def attack(self, projectiles, player_pos,current_time):
         if current_time - self.last_attack_time >= self.cooldown:
             direction = np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE])
             norm = np.linalg.norm(direction)
@@ -230,8 +235,7 @@ class Type3Monster(Monster):
         cooldown = MONSTER_ATTACK_COOLDOWN["type3"]
         super().__init__(x_pos, y_pos, "type3", speed, hp, attack_power, cooldown)
 
-    def attack(self, projectiles, player_pos):
-        current_time = time.time()
+    def attack(self, projectiles, player_pos,current_time):
         if current_time - self.last_attack_time >= self.cooldown:
             direction = np.array(player_pos) - np.array([self.pos[0] + MONSTER_SIZE // 2, self.pos[1] + MONSTER_SIZE])
             norm = np.linalg.norm(direction)
@@ -281,10 +285,10 @@ class Game:
             transforms.Resize((FINAL_WIDTH, FINAL_HEIGHT)),
             transforms.ToTensor()
         ])
-        self.last_monster_spawn_time = time.time()
+        self.last_monster_spawn_time = 0
         self.monster_respawn_time = MONSTER_RESPAWN_TIME
-        self.wave_start_time = time.time()
-        self.initial_wave_time = time.time()
+        self.wave_start_time = 0
+        self.initial_wave_time = 0
         self.model_path = model_path
         if self.model_path:
             self.load_model(self.model_path)
@@ -318,11 +322,11 @@ class Game:
             else:
                 pygame.draw.rect(self.screen, BLACK, (int(projectile[0]), int(projectile[1]), PROJECTILE_SIZE, PROJECTILE_SIZE))
 
-    def update_monster_positions(self):
+    def update_monster_positions(self,current_time):
         new_projectiles = []
         for monster in self.monsters:
             monster.move(self.player.pos)
-            monster.attack(new_projectiles, self.player.pos)
+            monster.attack(new_projectiles, self.player.pos,current_time)
         self.monsters = [monster for monster in self.monsters if monster.pos[1] < SCREEN_HEIGHT and monster.hp > 0]
         self.projectiles += new_projectiles
 
@@ -433,10 +437,10 @@ class Game:
         self.player.reset_position()
         self.monsters = []
         self.projectiles = []
-        self.last_monster_spawn_time = time.time()
+        self.last_monster_spawn_time = 0
         self.monster_respawn_time = MONSTER_RESPAWN_TIME
-        self.wave_start_time = time.time()
-        self.initial_wave_time = time.time()
+        self.wave_start_time = 0
+        self.initial_wave_time = 0
         self.total_survival_time = 0  # Reset survival time display
         self.total_monsters_killed = 0  # Reset monsters killed
         self.player.hp = 100  # Reset player HP
@@ -470,7 +474,7 @@ class Game:
             if self.mode == "manual":
                 action = self.player.move_manual(keys)
                 if action == 4:
-                    self.update_monster_positions()
+                    self.update_monster_positions(current_time)
                     self.update_projectile_positions()
                     collision, reason = self.collision_check()
                     if collision:
@@ -487,7 +491,7 @@ class Game:
                     for monster in self.monsters:
                         monster.draw(self.screen)
                     self.draw_projectiles()
-                    self.player.shoot(self.projectiles, self.monsters)
+                    self.player.shoot(self.projectiles, self.monsters,current_time)
                     self.draw_arrows(action)
                     self.draw_timer(self.screen, current_time)
                     self.draw_hp(self.screen, self.player.hp)
@@ -501,20 +505,24 @@ class Game:
                     action = self.choose_action(state)
                     self.player.move(action)
 
-                    
+
                     if current_time - self.wave_start_time >= WAVE_INTERVAL:
+                        print('new wave time=',current_time)
                         self.monster_respawn_time = MONSTER_RESPAWN_TIME  # Reset respawn time
                         self.wave_start_time = current_time
-                        self.initial_wave_time = current_time  # Reset wave time
                         self.last_monster_spawn_time = current_time
                         for monster in self.monsters:
                             self.monsters.remove(monster)
                     elif current_time - self.last_monster_spawn_time >= self.monster_respawn_time:
+                        print('new respawn time=',current_time)
+                        print('last respawn',self.last_monster_spawn_time)
+                        print('last wave',self.wave_start_time)
                         for monster_type in self.monsters_per_respawn:
                             self.monsters.append(self.create_monster(monster_type))
                         self.last_monster_spawn_time = current_time
-
-                    self.update_monster_positions()
+                    else:
+                        pass
+                    self.update_monster_positions(current_time)
                     self.update_projectile_positions()
 
                     collision, reason = self.collision_check()
@@ -533,13 +541,13 @@ class Game:
             for monster in self.monsters:
                 monster.draw(self.screen)
             self.draw_projectiles()
-            self.player.shoot(self.projectiles, self.monsters)
+            self.player.shoot(self.projectiles, self.monsters,current_time)
             self.draw_arrows(action)
 
             next_frame = self.get_game_image()
             next_state = np.concatenate((state[1:], np.expand_dims(next_frame, axis=0)), axis=0)  # Shape [4, FINAL_WIDTH, FINAL_HEIGHT]
 
-            survival_time = (time.time() - start_time) * current_speed_multiplier
+            survival_time = current_time 
             reward = (survival_time * self.survival_time_weight * current_speed_multiplier) + (self.total_monsters_killed * self.monsters_killed_weight)  # Custom reward
 
             self.replay_memory.append((state, action, reward, next_state, done))
